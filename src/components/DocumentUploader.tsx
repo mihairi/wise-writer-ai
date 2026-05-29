@@ -31,9 +31,10 @@ export function DocumentUploader({ docs, onChange }: Props) {
             console.log("[upload] done", f.name, "chars=", doc.text.length);
             extracted.push(doc);
           } catch (err: any) {
+          } catch (err: any) {
             console.error("[upload] failed", f.name, err);
             extracted.push({
-              id: crypto.randomUUID(),
+              id: uid(),
               name: f.name,
               size: f.size,
               type: f.type || "file",
@@ -41,7 +42,6 @@ export function DocumentUploader({ docs, onChange }: Props) {
               preview: `Failed: ${err?.message || "unknown error"}`,
             });
           }
-        }
         onChange([...docs, ...extracted]);
       } finally {
         setBusy(false);

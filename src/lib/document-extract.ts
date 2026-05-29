@@ -1,12 +1,23 @@
-// Extract plain text from uploaded files
 import mammoth from "mammoth";
 import JSZip from "jszip";
 
-function uid(): string {
+/** Generate a unique id, safe for non-secure contexts (HTTP localhost). */
+export function uid(): string {
   try {
     if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   } catch {}
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const EXTRACTION_TIMEOUT_MS = 30000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 export interface ExtractedDoc {
@@ -24,16 +35,20 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
   // Use the legacy build — works without a separate worker file in all browsers.
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = "";
-  const pdf = await pdfjs.getDocument({
-    data: buf.slice(0),
-    disableWorker: true,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  }).promise;
+  const pdf: any = await withTimeout(
+    pdfjs.getDocument({
+      data: buf.slice(0),
+      disableWorker: true,
+      isEvalSupported: false,
+      useSystemFonts: true,
+    }).promise,
+    EXTRACTION_TIMEOUT_MS,
+    "PDF loading"
+  );
   const out: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
+    const page: any = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
+    const content: any = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
   }
   return out.join("\n\n");

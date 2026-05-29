@@ -1,4 +1,15 @@
-// Extract plain text from uploaded files
+import mammoth from "mammoth";
+import JSZip from "jszip";
+
+/** Generate a unique id, safe for non-secure contexts (HTTP localhost). */
+export function uid(): string {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  } catch {}
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const EXTRACTION_TIMEOUT_MS = 30000;
 import mammoth from "mammoth";
 import JSZip from "jszip";
 

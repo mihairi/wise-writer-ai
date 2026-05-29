@@ -38,6 +38,9 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
   const pdf = await withTimeout(
     pdfjs.getDocument({
       data: buf.slice(0),
+  const pdf: any = await withTimeout(
+    pdfjs.getDocument({
+      data: buf.slice(0),
       disableWorker: true,
       isEvalSupported: false,
       useSystemFonts: true,
@@ -47,9 +50,11 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
   );
   const out: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
-    const content = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
+    const page: any = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
+    const content: any = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
+  }
+  return out.join("\n\n");
   }
   return out.join("\n\n");
 }

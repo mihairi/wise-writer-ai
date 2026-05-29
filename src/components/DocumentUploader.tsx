@@ -27,7 +27,12 @@ export function DocumentUploader({ docs, onChange }: Props) {
         for (const f of Array.from(files)) {
           try {
             console.log("[upload] extracting", f.name, f.size, f.type);
-            const doc = await extractDocument(f);
+            const doc = await Promise.race([
+              extractDocument(f),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Extraction timed out after 60s")), 60000)
+              ),
+            ]);
             console.log("[upload] done", f.name, "chars=", doc.text.length);
             extracted.push(doc);
           } catch (err: any) {

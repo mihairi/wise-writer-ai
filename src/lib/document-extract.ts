@@ -10,14 +10,14 @@ export function uid(): string {
 }
 
 const EXTRACTION_TIMEOUT_MS = 30000;
-import mammoth from "mammoth";
-import JSZip from "jszip";
 
-function uid(): string {
-  try {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  } catch {}
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 export interface ExtractedDoc {

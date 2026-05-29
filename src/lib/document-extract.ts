@@ -35,9 +35,6 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
   // Use the legacy build — works without a separate worker file in all browsers.
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = "";
-  const pdf = await withTimeout(
-    pdfjs.getDocument({
-      data: buf.slice(0),
   const pdf: any = await withTimeout(
     pdfjs.getDocument({
       data: buf.slice(0),
@@ -53,8 +50,6 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
     const page: any = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
     const content: any = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
-  }
-  return out.join("\n\n");
   }
   return out.join("\n\n");
 }

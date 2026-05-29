@@ -28,23 +28,24 @@ export interface ExtractedDoc {
   text: string;
   preview: string;
   /** Original file bytes — kept so we can do format-preserving transforms (e.g. translation). */
-  bytes?: ArrayBuffer;
-}
-
 async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
   // Use the legacy build — works without a separate worker file in all browsers.
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = "";
-  const pdf = await pdfjs.getDocument({
-    data: buf.slice(0),
-    disableWorker: true,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  }).promise;
+  const pdf = await withTimeout(
+    pdfjs.getDocument({
+      data: buf.slice(0),
+      disableWorker: true,
+      isEvalSupported: false,
+      useSystemFonts: true,
+    }).promise,
+    EXTRACTION_TIMEOUT_MS,
+    "PDF loading"
+  );
   const out: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
+    const page = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
+    const content = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
   }
   return out.join("\n\n");

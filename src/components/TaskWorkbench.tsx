@@ -89,10 +89,7 @@ export function TaskWorkbench({ config, docs }: Props) {
         ],
         signal: ctl.signal,
         onStage: (s) => setStage(s),
-        onDelta: (t) => {
-          acc += 0; // no-op, accumulated below via callback shadow
-          setChars((c) => c + t.length);
-        },
+        onDelta: (t) => setChars((c) => c + t.length),
         onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
       });
 

@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Upload, FileText, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { extractDocument, type ExtractedDoc } from "@/lib/document-extract";
-
+import { extractDocument, type ExtractedDoc, uid } from "@/lib/document-extract";
 interface Props {
   docs: ExtractedDoc[];
   onChange: (docs: ExtractedDoc[]) => void;

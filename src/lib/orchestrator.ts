@@ -137,7 +137,7 @@ ${opts.user}`;
     ],
     signal: opts.signal,
     onThinking: opts.onThinking,
-    onDelta: opts.onDelta,
+    onDelta: opts.onDelta ?? (() => {}),
     maxContinuations: 3,
   });
 }

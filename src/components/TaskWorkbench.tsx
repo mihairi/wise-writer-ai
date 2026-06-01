@@ -45,12 +45,15 @@ function formatDuration(ms: number) {
 export function TaskWorkbench({ config, docs }: Props) {
   const [task, setTask] = useState<TaskId>("compare");
   const [instruction, setInstruction] = useState("");
+  const [targetPages, setTargetPages] = useState(0);
+  const [workers, setWorkers] = useState(3);
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState<string>("");
   const [chars, setChars] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [thinking, setThinking] = useState("");
   const [thinkOpen, setThinkOpen] = useState(false);
+  const [outline, setOutline] = useState<Outline | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const abortRef = useRef<AbortController | null>(null);

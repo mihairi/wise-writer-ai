@@ -22,6 +22,7 @@ export interface TranslateProgress {
 }
 
 const BATCH_SIZE = 16;
+const DEFAULT_CONCURRENCY = 4;
 
 function buildPrompt(target: Language, source: Language | "auto") {
   const src = source === "auto" ? "auto-detected source language" : source;
@@ -71,7 +72,8 @@ async function translateMany(
   target: Language,
   source: Language | "auto",
   onProgress?: (p: TranslateProgress) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  concurrency = DEFAULT_CONCURRENCY
 ): Promise<string[]> {
   const result: string[] = new Array(texts.length);
   // Skip empty / whitespace-only nodes
@@ -80,22 +82,37 @@ async function translateMany(
     .filter((x) => x.t && x.t.trim().length > 0);
   const total = idxs.length;
   let done = 0;
-  for (let i = 0; i < idxs.length; i += BATCH_SIZE) {
-    if (signal?.aborted) throw new Error("Aborted");
-    const slice = idxs.slice(i, i + BATCH_SIZE);
-    const translated = await translateBatch(
-      config,
-      slice.map((s) => s.t),
-      target,
-      source,
-      signal
-    );
-    slice.forEach((s, k) => {
-      result[s.i] = translated[k];
-    });
-    done += slice.length;
-    onProgress?.({ done, total, stage: `Translating ${done}/${total} segments` });
-  }
+
+  // Build batches up-front, then run N batches in parallel against the same endpoint.
+  const batchStarts: number[] = [];
+  for (let i = 0; i < idxs.length; i += BATCH_SIZE) batchStarts.push(i);
+  let next = 0;
+
+  const worker = async () => {
+    while (true) {
+      if (signal?.aborted) throw new Error("Aborted");
+      const k = next++;
+      if (k >= batchStarts.length) return;
+      const start = batchStarts[k];
+      const slice = idxs.slice(start, start + BATCH_SIZE);
+      const translated = await translateBatch(
+        config,
+        slice.map((s) => s.t),
+        target,
+        source,
+        signal
+      );
+      slice.forEach((s, kk) => {
+        result[s.i] = translated[kk];
+      });
+      done += slice.length;
+      onProgress?.({ done, total, stage: `Translating ${done}/${total} segments` });
+    }
+  };
+
+  const n = Math.max(1, Math.min(concurrency, batchStarts.length || 1));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+
   // Preserve original whitespace-only nodes
   for (let i = 0; i < texts.length; i++) {
     if (result[i] === undefined) result[i] = texts[i];

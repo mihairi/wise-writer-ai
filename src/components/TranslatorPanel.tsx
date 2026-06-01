@@ -74,7 +74,7 @@ export function TranslatorPanel({ config, docs }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">From</Label>
           <Select value={source} onValueChange={(v) => setSource(v as Language | "auto")}>
@@ -106,13 +106,29 @@ export function TranslatorPanel({ config, docs }: Props) {
             </SelectContent>
           </Select>
         </div>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+            Parallel batches
+          </Label>
+          <Input
+            type="number"
+            min={1}
+            max={16}
+            value={concurrency}
+            onChange={(e) =>
+              setConcurrency(Math.max(1, Math.min(16, Number(e.target.value) || 1)))
+            }
+            className="mt-1 bg-surface"
+          />
+        </div>
       </div>
 
       <p className="text-[11px] text-muted-foreground font-mono">
-        Each document is translated segment-by-segment on your local model. DOCX and PPTX preserve
-        the original layout and styling. PDFs are delivered as Word documents because their layout
-        cannot be rewritten in-browser.
+        Translation is split into batches of 16 segments and dispatched in parallel against your
+        local model — increase parallel batches to translate larger docs faster (limited by your
+        model server's concurrency). DOCX/PPTX preserve original layout; PDFs deliver as Word.
       </p>
+
 
       {err && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive flex gap-2 items-start">

@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TASKS, buildPrompt, type TaskId } from "@/lib/tasks";
 import { type LLMConfig, generateLong } from "@/lib/llm-service";
+import { generateOrchestrated, type Outline } from "@/lib/orchestrator";
 import type { ExtractedDoc } from "@/lib/document-extract";
 import { exportToDocx } from "@/lib/docx-export";
 import { TranslatorPanel } from "./TranslatorPanel";
@@ -43,12 +45,15 @@ function formatDuration(ms: number) {
 export function TaskWorkbench({ config, docs }: Props) {
   const [task, setTask] = useState<TaskId>("compare");
   const [instruction, setInstruction] = useState("");
+  const [targetPages, setTargetPages] = useState(0);
+  const [workers, setWorkers] = useState(3);
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState<string>("");
   const [chars, setChars] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [thinking, setThinking] = useState("");
   const [thinkOpen, setThinkOpen] = useState(false);
+  const [outline, setOutline] = useState<Outline | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -70,6 +75,7 @@ export function TaskWorkbench({ config, docs }: Props) {
     setLastRun(null);
     setChars(0);
     setThinking("");
+    setOutline(null);
     setStage("Preparing prompt…");
     setRunning(true);
     startRef.current = Date.now();
@@ -81,17 +87,32 @@ export function TaskWorkbench({ config, docs }: Props) {
 
     let acc = "";
     try {
-      acc = await generateLong({
-        config,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        signal: ctl.signal,
-        onStage: (s) => setStage(s),
-        onDelta: (t) => setChars((c) => c + t.length),
-        onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
-      });
+      if (targetPages > 0) {
+        acc = await generateOrchestrated({
+          config,
+          system,
+          user,
+          targetPages,
+          concurrency: workers,
+          signal: ctl.signal,
+          onStage: (s) => setStage(s),
+          onDelta: (t) => setChars((c) => c + t.length),
+          onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
+          onPlan: (o) => setOutline(o),
+        });
+      } else {
+        acc = await generateLong({
+          config,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          signal: ctl.signal,
+          onStage: (s) => setStage(s),
+          onDelta: (t) => setChars((c) => c + t.length),
+          onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
+        });
+      }
 
       if (ctl.signal.aborted) {
         setStage("Stopped.");
@@ -174,6 +195,47 @@ export function TaskWorkbench({ config, docs }: Props) {
             />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Target length (pages)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                max={80}
+                value={targetPages}
+                onChange={(e) =>
+                  setTargetPages(Math.max(0, Math.min(80, Number(e.target.value) || 0)))
+                }
+                className="mt-1 bg-surface"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                0 = single-call mode. Set ≥ 1 to enable the orchestrator: it plans an outline and
+                writes each section in parallel to bypass per-call length caps.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Parallel sections
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                max={8}
+                value={workers}
+                onChange={(e) =>
+                  setWorkers(Math.max(1, Math.min(8, Number(e.target.value) || 1)))
+                }
+                className="mt-1 bg-surface"
+                disabled={targetPages === 0}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                How many sections to write concurrently against the same local model endpoint.
+              </p>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             {!running ? (
               <Button
@@ -243,6 +305,23 @@ export function TaskWorkbench({ config, docs }: Props) {
                     style={{ width: "40%" }}
                   />
                 </div>
+
+                {outline && (
+                  <div className="rounded border border-hairline bg-background/40 p-3">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono mb-2">
+                      Orchestrator plan · {outline.sections.length} sections
+                    </div>
+                    <ol className="text-xs space-y-1 list-decimal list-inside">
+                      {outline.sections.map((s) => (
+                        <li key={s.number} className="truncate">
+                          <span className="font-medium">{s.heading}</span>{" "}
+                          <span className="text-muted-foreground font-mono">~{s.words}w</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
 
                 {thinking && (
                   <div>

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Languages, Loader2, Download, Square, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ interface Props {
 export function TranslatorPanel({ config, docs }: Props) {
   const [source, setSource] = useState<Language | "auto">("auto");
   const [target, setTarget] = useState<Language>("English");
+  const [concurrency, setConcurrency] = useState(4);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; stage: string } | null>(
     null

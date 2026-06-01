@@ -75,6 +75,7 @@ export function TaskWorkbench({ config, docs }: Props) {
     setLastRun(null);
     setChars(0);
     setThinking("");
+    setOutline(null);
     setStage("Preparing prompt…");
     setRunning(true);
     startRef.current = Date.now();
@@ -86,17 +87,32 @@ export function TaskWorkbench({ config, docs }: Props) {
 
     let acc = "";
     try {
-      acc = await generateLong({
-        config,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        signal: ctl.signal,
-        onStage: (s) => setStage(s),
-        onDelta: (t) => setChars((c) => c + t.length),
-        onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
-      });
+      if (targetPages > 0) {
+        acc = await generateOrchestrated({
+          config,
+          system,
+          user,
+          targetPages,
+          concurrency: workers,
+          signal: ctl.signal,
+          onStage: (s) => setStage(s),
+          onDelta: (t) => setChars((c) => c + t.length),
+          onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
+          onPlan: (o) => setOutline(o),
+        });
+      } else {
+        acc = await generateLong({
+          config,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          signal: ctl.signal,
+          onStage: (s) => setStage(s),
+          onDelta: (t) => setChars((c) => c + t.length),
+          onThinking: (t) => setThinking((p) => (p + t).slice(-8000)),
+        });
+      }
 
       if (ctl.signal.aborted) {
         setStage("Stopped.");

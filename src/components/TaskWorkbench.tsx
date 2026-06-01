@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TASKS, buildPrompt, type TaskId } from "@/lib/tasks";
 import { type LLMConfig, generateLong } from "@/lib/llm-service";
+import { generateOrchestrated, type Outline } from "@/lib/orchestrator";
 import type { ExtractedDoc } from "@/lib/document-extract";
 import { exportToDocx } from "@/lib/docx-export";
 import { TranslatorPanel } from "./TranslatorPanel";

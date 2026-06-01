@@ -195,6 +195,47 @@ export function TaskWorkbench({ config, docs }: Props) {
             />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Target length (pages)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                max={80}
+                value={targetPages}
+                onChange={(e) =>
+                  setTargetPages(Math.max(0, Math.min(80, Number(e.target.value) || 0)))
+                }
+                className="mt-1 bg-surface"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                0 = single-call mode. Set ≥ 1 to enable the orchestrator: it plans an outline and
+                writes each section in parallel to bypass per-call length caps.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Parallel sections
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                max={8}
+                value={workers}
+                onChange={(e) =>
+                  setWorkers(Math.max(1, Math.min(8, Number(e.target.value) || 1)))
+                }
+                className="mt-1 bg-surface"
+                disabled={targetPages === 0}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                How many sections to write concurrently against the same local model endpoint.
+              </p>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             {!running ? (
               <Button

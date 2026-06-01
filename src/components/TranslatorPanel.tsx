@@ -52,6 +52,7 @@ export function TranslatorPanel({ config, docs }: Props) {
         config,
         target,
         source,
+        concurrency,
         onProgress: (p) => setProgress(p),
         signal: ctl.signal,
       });

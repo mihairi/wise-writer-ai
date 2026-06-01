@@ -265,39 +265,109 @@ export async function translateDocument(opts: {
   source?: Language | "auto";
   onProgress?: (p: TranslateProgress) => void;
   signal?: AbortSignal;
+  concurrency?: number;
 }): Promise<TranslateResult> {
-  const { doc, config, target, source = "auto", onProgress, signal } = opts;
+  const { doc, config, target, source = "auto", onProgress, signal, concurrency } = opts;
   if (!doc.bytes) throw new Error("Original file bytes are unavailable for translation.");
   const lower = doc.name.toLowerCase();
   const tag = langTag(target);
   const baseName = doc.name.replace(/\.[^.]+$/, "");
 
+  // Thread concurrency into translateMany via partial application.
+  const _origMany = translateMany;
+  const many = (
+    cfg: LLMConfig,
+    texts: string[],
+    tgt: Language,
+    src: Language | "auto",
+    onP?: (p: TranslateProgress) => void,
+    sig?: AbortSignal
+  ) => _origMany(cfg, texts, tgt, src, onP, sig, concurrency);
+  // monkey-patch local reference: translateOoxmlPart / translatePlainText call translateMany
+  // directly, so we re-implement the two callers inline with the concurrency arg.
+
+  const ooxml = async (xml: string, tag2: "w:t" | "a:t", stagePrefix: string) => {
+    const re = new RegExp(`<${tag2}([^>]*)>([\\s\\S]*?)</${tag2}>`, "g");
+    const matches = Array.from(xml.matchAll(re));
+    const texts = matches.map((m) =>
+      m[2].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    );
+    if (!texts.length) return xml;
+    const translated = await many(
+      config,
+      texts,
+      target,
+      source,
+      (p) => onProgress?.({ ...p, stage: `${stagePrefix}${p.stage}` }),
+      signal
+    );
+    let i = 0;
+    return xml.replace(re, (_full, attrs) => {
+      const t = translated[i++] ?? "";
+      return `<${tag2}${attrs}>${escapeXml(t)}</${tag2}>`;
+    });
+  };
+
   if (lower.endsWith(".docx")) {
-    const blob = await translateDocx(doc.bytes, config, target, source, onProgress, signal);
+    const zip = await JSZip.loadAsync(doc.bytes);
+    const partNames = Object.keys(zip.files).filter((n) =>
+      /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/.test(n)
+    );
+    for (const name of partNames) {
+      const xml = await zip.files[name].async("string");
+      const updated = await ooxml(xml, "w:t", `${name}: `);
+      zip.file(name, updated);
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
     return { blob, filename: `${baseName}.${tag}.docx` };
   }
   if (lower.endsWith(".pptx")) {
-    const blob = await translatePptx(doc.bytes, config, target, source, onProgress, signal);
+    const zip = await JSZip.loadAsync(doc.bytes);
+    const partNames = Object.keys(zip.files).filter((n) =>
+      /^ppt\/(slides|notesSlides)\/(slide|notesSlide)\d+\.xml$/.test(n)
+    );
+    for (const name of partNames) {
+      const xml = await zip.files[name].async("string");
+      const updated = await ooxml(xml, "a:t", `${name}: `);
+      zip.file(name, updated);
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
     return { blob, filename: `${baseName}.${tag}.pptx` };
   }
   if (lower.endsWith(".pdf")) {
-    // PDF cannot be edited in-place from the browser — export translated text as DOCX.
-    const translatedText = await translatePlainText(doc.text, config, target, source, onProgress, signal);
+    const segments = doc.text.split(/(\r?\n\s*\r?\n)/);
+    const payload: string[] = [];
+    const slots: number[] = [];
+    segments.forEach((s, i) => {
+      if (i % 2 === 0 && s.trim()) { slots.push(i); payload.push(s); }
+    });
+    const translated = payload.length
+      ? await many(config, payload, target, source, onProgress, signal)
+      : payload;
+    const out = segments.slice();
+    slots.forEach((idx, k) => { out[idx] = translated[k]; });
     const filename = `${baseName}.${tag}.docx`;
-    await exportToDocx(`${baseName} (${target})`, translatedText, filename);
+    await exportToDocx(`${baseName} (${target})`, out.join(""), filename);
     return {
       blob: new Blob(),
       filename,
       notice: "PDF formatting cannot be preserved client-side — delivered as a Word document.",
     };
   }
-  // Plain text-ish formats: keep extension.
   const decoded =
-    doc.text && !doc.text.startsWith("[Failed")
-      ? doc.text
-      : new TextDecoder().decode(doc.bytes);
-  const translated = await translatePlainText(decoded, config, target, source, onProgress, signal);
-  const blob = new Blob([translated], { type: "text/plain;charset=utf-8" });
+    doc.text && !doc.text.startsWith("[Failed") ? doc.text : new TextDecoder().decode(doc.bytes);
+  const segments = decoded.split(/(\r?\n\s*\r?\n)/);
+  const payload: string[] = [];
+  const slots: number[] = [];
+  segments.forEach((s, i) => {
+    if (i % 2 === 0 && s.trim()) { slots.push(i); payload.push(s); }
+  });
+  const translated = payload.length
+    ? await many(config, payload, target, source, onProgress, signal)
+    : payload;
+  const out = segments.slice();
+  slots.forEach((idx, k) => { out[idx] = translated[k]; });
+  const blob = new Blob([out.join("")], { type: "text/plain;charset=utf-8" });
   return { blob, filename: changeExt(doc.name, `.${tag}${lower.match(/\.[a-z0-9]+$/)?.[0] || ".txt"}`) };
 }
 

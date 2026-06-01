@@ -306,6 +306,23 @@ export function TaskWorkbench({ config, docs }: Props) {
                   />
                 </div>
 
+                {outline && (
+                  <div className="rounded border border-hairline bg-background/40 p-3">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono mb-2">
+                      Orchestrator plan · {outline.sections.length} sections
+                    </div>
+                    <ol className="text-xs space-y-1 list-decimal list-inside">
+                      {outline.sections.map((s) => (
+                        <li key={s.number} className="truncate">
+                          <span className="font-medium">{s.heading}</span>{" "}
+                          <span className="text-muted-foreground font-mono">~{s.words}w</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+
                 {thinking && (
                   <div>
                     <button

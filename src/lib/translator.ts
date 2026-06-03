@@ -127,6 +127,17 @@ function escapeXml(s: string) {
     .replace(/>/g, "&gt;");
 }
 
+// Strip characters that are illegal in XML 1.0 (C0 controls except \t \n \r,
+// plus lone surrogates and non-characters). LLMs occasionally emit these and
+// they make Word refuse to open the .docx with "unreadable content" errors.
+function sanitizeXmlText(s: string) {
+  return s
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1");
+}
+
 
 
 

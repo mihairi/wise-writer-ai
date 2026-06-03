@@ -245,7 +245,10 @@ export async function translateDocument(opts: {
       const updated = await ooxml(xml, "a:t", `${name}: `);
       zip.file(name, updated);
     }
-    const blob = await zip.generateAsync({ type: "blob" });
+    const blob = await zip.generateAsync({
+      type: "blob",
+      mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
     return { blob, filename: `${baseName}.${tag}.pptx` };
   }
   if (lower.endsWith(".pdf")) {

@@ -127,6 +127,17 @@ function escapeXml(s: string) {
     .replace(/>/g, "&gt;");
 }
 
+// Strip characters that are illegal in XML 1.0 (C0 controls except \t \n \r,
+// plus lone surrogates and non-characters). LLMs occasionally emit these and
+// they make Word refuse to open the .docx with "unreadable content" errors.
+function sanitizeXmlText(s: string) {
+  return s
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1");
+}
+
 
 
 
@@ -174,10 +185,17 @@ export async function translateDocument(opts: {
   // directly, so we re-implement the two callers inline with the concurrency arg.
 
   const ooxml = async (xml: string, tag2: "w:t" | "a:t", stagePrefix: string) => {
-    const re = new RegExp(`<${tag2}([^>]*)>([\\s\\S]*?)</${tag2}>`, "g");
+    // Require whitespace or `>` after the tag name so we don't accidentally
+    // match siblings like <w:tab/>, <w:tbl>, <a:tableStyleId>, etc.
+    const re = new RegExp(`<${tag2}(\\s[^>]*)?>([\\s\\S]*?)</${tag2}>`, "g");
     const matches = Array.from(xml.matchAll(re));
     const texts = matches.map((m) =>
-      m[2].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+      (m[2] || "")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, "&")
     );
     if (!texts.length) return xml;
     const translated = await many(
@@ -190,8 +208,14 @@ export async function translateDocument(opts: {
     );
     let i = 0;
     return xml.replace(re, (_full, attrs) => {
-      const t = translated[i++] ?? "";
-      return `<${tag2}${attrs}>${escapeXml(t)}</${tag2}>`;
+      const raw = translated[i++] ?? "";
+      const safe = sanitizeXmlText(raw);
+      let a = attrs || "";
+      // Word collapses leading/trailing whitespace unless xml:space="preserve".
+      if (/^\s|\s$/.test(safe) && !/xml:space\s*=/.test(a)) {
+        a = `${a} xml:space="preserve"`;
+      }
+      return `<${tag2}${a}>${escapeXml(safe)}</${tag2}>`;
     });
   };
 
@@ -205,7 +229,10 @@ export async function translateDocument(opts: {
       const updated = await ooxml(xml, "w:t", `${name}: `);
       zip.file(name, updated);
     }
-    const blob = await zip.generateAsync({ type: "blob" });
+    const blob = await zip.generateAsync({
+      type: "blob",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     return { blob, filename: `${baseName}.${tag}.docx` };
   }
   if (lower.endsWith(".pptx")) {
@@ -218,7 +245,10 @@ export async function translateDocument(opts: {
       const updated = await ooxml(xml, "a:t", `${name}: `);
       zip.file(name, updated);
     }
-    const blob = await zip.generateAsync({ type: "blob" });
+    const blob = await zip.generateAsync({
+      type: "blob",
+      mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
     return { blob, filename: `${baseName}.${tag}.pptx` };
   }
   if (lower.endsWith(".pdf")) {

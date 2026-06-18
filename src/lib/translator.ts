@@ -304,18 +304,9 @@ export async function translateDocument(opts: {
   // directly, so we re-implement the two callers inline with the concurrency arg.
 
   const ooxml = async (xml: string, tag2: "w:t" | "a:t", stagePrefix: string) => {
-    // Require whitespace or `>` after the tag name so we don't accidentally
-    // match siblings like <w:tab/>, <w:tbl>, <a:tableStyleId>, etc.
-    const re = new RegExp(`<${tag2}(\\s[^>]*)?>([\\s\\S]*?)</${tag2}>`, "g");
+    const re = containerTagRe(tag2);
     const matches = Array.from(xml.matchAll(re));
-    const texts = matches.map((m) =>
-      (m[2] || "")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&amp;/g, "&")
-    );
+    const texts = matches.map((m) => extractContainerText(m[0], tag2));
     if (!texts.length) return xml;
     const translated = await many(
       config,
@@ -326,16 +317,9 @@ export async function translateDocument(opts: {
       signal
     );
     let i = 0;
-    return xml.replace(re, (_full, attrs) => {
-      const raw = translated[i++] ?? "";
-      const safe = sanitizeXmlText(raw);
-      let a = attrs || "";
-      // Word collapses leading/trailing whitespace unless xml:space="preserve".
-      if (/^\s|\s$/.test(safe) && !/xml:space\s*=/.test(a)) {
-        a = `${a} xml:space="preserve"`;
-      }
-      return `<${tag2}${a}>${escapeXml(safe)}</${tag2}>`;
-    });
+    return xml.replace(re, (container) =>
+      writeTranslatedContainer(container, tag2, translated[i++] ?? "")
+    );
   };
 
   if (lower.endsWith(".docx")) {

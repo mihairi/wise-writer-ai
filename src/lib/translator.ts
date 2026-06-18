@@ -347,13 +347,18 @@ export async function translateDocument(opts: {
     const payload: string[] = [];
     const slots: number[] = [];
     segments.forEach((s, i) => {
-      if (i % 2 === 0 && s.trim()) { slots.push(i); payload.push(s); }
+      if (i % 2 === 0 && s.trim()) {
+        slots.push(i);
+        payload.push(s);
+      }
     });
     const translated = payload.length
       ? await many(config, payload, target, source, onProgress, signal)
       : payload;
     const out = segments.slice();
-    slots.forEach((idx, k) => { out[idx] = translated[k]; });
+    slots.forEach((idx, k) => {
+      out[idx] = translated[k];
+    });
     const filename = `${baseName}.${tag}.docx`;
     await exportToDocx(`${baseName} (${target})`, out.join(""), filename);
     return {
@@ -368,15 +373,23 @@ export async function translateDocument(opts: {
   const payload: string[] = [];
   const slots: number[] = [];
   segments.forEach((s, i) => {
-    if (i % 2 === 0 && s.trim()) { slots.push(i); payload.push(s); }
+    if (i % 2 === 0 && s.trim()) {
+      slots.push(i);
+      payload.push(s);
+    }
   });
   const translated = payload.length
     ? await many(config, payload, target, source, onProgress, signal)
     : payload;
   const out = segments.slice();
-  slots.forEach((idx, k) => { out[idx] = translated[k]; });
+  slots.forEach((idx, k) => {
+    out[idx] = translated[k];
+  });
   const blob = new Blob([out.join("")], { type: "text/plain;charset=utf-8" });
-  return { blob, filename: changeExt(doc.name, `.${tag}${lower.match(/\.[a-z0-9]+$/)?.[0] || ".txt"}`) };
+  return {
+    blob,
+    filename: changeExt(doc.name, `.${tag}${lower.match(/\.[a-z0-9]+$/)?.[0] || ".txt"}`),
+  };
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

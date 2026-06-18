@@ -179,7 +179,7 @@ function containerTagRe(textTag: "w:t" | "a:t") {
 function sanitizeXmlText(s: string) {
   return (
     s
-    // eslint-disable-next-line no-control-regex
+      // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
       .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
       .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1")

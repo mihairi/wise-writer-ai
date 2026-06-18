@@ -55,6 +55,14 @@ export function SettingsPanel({ config, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.provider, config.host, config.port]);
 
+  useEffect(() => {
+    // Auto-fetch models on first mount if no model is selected yet
+    if (!config.model && config.host && config.port) {
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const update = (patch: Partial<LLMConfig>) => {
     let updated = { ...config, ...patch };
     if (patch.provider) {

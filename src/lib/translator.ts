@@ -150,10 +150,7 @@ async function translateMany(
 }
 
 function escapeXml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function unescapeXml(s: string) {
@@ -180,11 +177,13 @@ function containerTagRe(textTag: "w:t" | "a:t") {
 // plus lone surrogates and non-characters). LLMs occasionally emit these and
 // they make Word refuse to open the .docx with "unreadable content" errors.
 function sanitizeXmlText(s: string) {
-  return s
+  return (
+    s
     // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
-    .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1");
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+      .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1")
+  );
 }
 
 function textElement(tag: "w:t" | "a:t", attrs: string | undefined, text: string) {
@@ -223,7 +222,7 @@ function splitTranslatedAcrossRuns(translated: string, originalRuns: string[]) {
     originalCursor += slot.text.length;
     const nextCursor = Math.max(
       translatedCursor,
-      Math.min(translated.length, Math.round((translated.length * originalCursor) / totalOriginal))
+      Math.min(translated.length, Math.round((translated.length * originalCursor) / totalOriginal)),
     );
     chunks[slot.index] = translated.slice(translatedCursor, nextCursor);
     translatedCursor = nextCursor;
@@ -240,17 +239,14 @@ function extractContainerText(containerXml: string, tag: "w:t" | "a:t") {
 
 function writeTranslatedContainer(containerXml: string, tag: "w:t" | "a:t", translated: string) {
   const originals = Array.from(containerXml.matchAll(textTagRe(tag))).map((m) =>
-    unescapeXml(m[2] || "")
+    unescapeXml(m[2] || ""),
   );
   const chunks = splitTranslatedAcrossRuns(translated, originals);
   let i = 0;
   return containerXml.replace(textTagRe(tag), (_full, attrs) =>
-    textElement(tag, attrs, chunks[i++] || "")
+    textElement(tag, attrs, chunks[i++] || ""),
   );
 }
-
-
-
 
 function changeExt(name: string, ext: string) {
   const i = name.lastIndexOf(".");

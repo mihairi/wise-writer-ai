@@ -25,39 +25,65 @@ const BATCH_SIZE = 16;
 const DEFAULT_CONCURRENCY = 4;
 
 function buildPrompt(target: Language, source: Language | "auto") {
-  const src = source === "auto" ? "auto-detected source language" : source;
-  return `You are a professional translator. Translate the following numbered segments from ${src} into ${target}.
-Rules:
-- Preserve meaning, tone, register and any inline punctuation.
-- Do NOT translate proper nouns, code, URLs or numbers.
-- Return EXACTLY the same number of segments, in the same order.
-- Output format: one segment per line, prefixed with its number and a pipe, like:
-  1| translated text
-  2| translated text
-- Do not add commentary, headings, or blank lines.`;
+  const src = source === "auto" ? "the auto-detected source language" : source;
+  return `You are a professional human translator producing publication-quality ${target}.
+You receive numbered segments (one per line). Some are marked [CONTEXT] — these come
+from the surrounding document and are provided ONLY so you understand the topic,
+discourse, terminology and tone. DO NOT translate or echo [CONTEXT] lines.
+Translate ONLY the segments marked [TRANSLATE].
+
+Translation rules:
+- Work at the level of phrases, clauses and full sentences. NEVER translate word-by-word.
+- Read each whole segment together with the surrounding context BEFORE writing,
+  then re-express the meaning idiomatically in ${target} as a native speaker would.
+- Preserve meaning, register, tone, terminology consistency and inline punctuation.
+- Keep proper nouns, code, URLs, numbers, placeholders and markup tokens unchanged.
+- Resolve pronouns, ellipses and ambiguous references using the context.
+- Reorder words and restructure clauses when ${target} grammar or idiom requires it;
+  prefer natural collocations over literal calques.
+- Output EXACTLY one line per [TRANSLATE] segment, in the same order, formatted as:
+  N| translated text
+- No commentary, no headings, no blank lines, no [CONTEXT] echoes.
+
+Source language: ${src}. Target language: ${target}.`;
 }
+
+// Segments of surrounding context (untranslated) included with each batch so the
+// model can translate phrases idiomatically rather than in isolation.
+const CONTEXT_WINDOW = 3;
 
 async function translateBatch(
   config: LLMConfig,
   texts: string[],
   target: Language,
   source: Language | "auto",
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  contextBefore: string[] = [],
+  contextAfter: string[] = []
 ): Promise<string[]> {
-  const numbered = texts.map((t, i) => `${i + 1}| ${t.replace(/\s+/g, " ")}`).join("\n");
+  const lines: string[] = [];
+  contextBefore.forEach((t, i) =>
+    lines.push(`C${i - contextBefore.length}| [CONTEXT] ${t.replace(/\s+/g, " ")}`)
+  );
+  texts.forEach((t, i) =>
+    lines.push(`${i + 1}| [TRANSLATE] ${t.replace(/\s+/g, " ")}`)
+  );
+  contextAfter.forEach((t, i) =>
+    lines.push(`C+${i + 1}| [CONTEXT] ${t.replace(/\s+/g, " ")}`)
+  );
   const raw = await chatComplete({
     config,
     messages: [
       { role: "system", content: buildPrompt(target, source) },
-      { role: "user", content: numbered },
+      { role: "user", content: lines.join("\n") },
     ],
     signal,
   });
-  // Parse "n| translated text" lines, tolerating extra whitespace.
+  // Parse "n| translated text" lines (positive numbers only — context uses C prefixes).
   const map = new Map<number, string>();
   for (const line of raw.split(/\r?\n/)) {
     const m = line.match(/^\s*(\d+)\s*\|\s*(.*)$/);
-    if (m) map.set(parseInt(m[1], 10), m[2]);
+    if (m) map.set(parseInt(m[1], 10), m[2].replace(/^\s*\[(?:TRANSLATE|CONTEXT)\]\s*/i, ""));
   }
   const out: string[] = [];
   for (let i = 0; i < texts.length; i++) {
@@ -95,12 +121,21 @@ async function translateMany(
       if (k >= batchStarts.length) return;
       const start = batchStarts[k];
       const slice = idxs.slice(start, start + BATCH_SIZE);
+      // Provide surrounding (untranslated source) segments as discourse context.
+      const before = idxs
+        .slice(Math.max(0, start - CONTEXT_WINDOW), start)
+        .map((s) => s.t);
+      const after = idxs
+        .slice(start + slice.length, start + slice.length + CONTEXT_WINDOW)
+        .map((s) => s.t);
       const translated = await translateBatch(
         config,
         slice.map((s) => s.t),
         target,
         source,
-        signal
+        signal,
+        before,
+        after
       );
       slice.forEach((s, kk) => {
         result[s.i] = translated[kk];

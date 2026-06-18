@@ -286,7 +286,7 @@ export async function translateDocument(opts: {
     tgt: Language,
     src: Language | "auto",
     onP?: (p: TranslateProgress) => void,
-    sig?: AbortSignal
+    sig?: AbortSignal,
   ) => _origMany(cfg, texts, tgt, src, onP, sig, concurrency);
   // monkey-patch local reference: translateOoxmlPart / translatePlainText call translateMany
   // directly, so we re-implement the two callers inline with the concurrency arg.
@@ -302,18 +302,18 @@ export async function translateDocument(opts: {
       target,
       source,
       (p) => onProgress?.({ ...p, stage: `${stagePrefix}${p.stage}` }),
-      signal
+      signal,
     );
     let i = 0;
     return xml.replace(re, (container) =>
-      writeTranslatedContainer(container, tag2, translated[i++] ?? "")
+      writeTranslatedContainer(container, tag2, translated[i++] ?? ""),
     );
   };
 
   if (lower.endsWith(".docx")) {
     const zip = await JSZip.loadAsync(doc.bytes);
     const partNames = Object.keys(zip.files).filter((n) =>
-      /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/.test(n)
+      /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/.test(n),
     );
     for (const name of partNames) {
       const xml = await zip.files[name].async("string");
@@ -329,7 +329,7 @@ export async function translateDocument(opts: {
   if (lower.endsWith(".pptx")) {
     const zip = await JSZip.loadAsync(doc.bytes);
     const partNames = Object.keys(zip.files).filter((n) =>
-      /^ppt\/(slides|notesSlides)\/(slide|notesSlide)\d+\.xml$/.test(n)
+      /^ppt\/(slides|notesSlides)\/(slide|notesSlide)\d+\.xml$/.test(n),
     );
     for (const name of partNames) {
       const xml = await zip.files[name].async("string");

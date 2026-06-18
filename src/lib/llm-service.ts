@@ -352,7 +352,7 @@ export function loadConfig(): LLMConfig {
     const raw = localStorage.getItem(KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { ...DEFAULTS.ollama, model: "" };
+  return { ...DEFAULTS.lmstudio, model: "" };
 }
 export function saveConfig(c: LLMConfig) {
   localStorage.setItem(KEY, JSON.stringify(c));

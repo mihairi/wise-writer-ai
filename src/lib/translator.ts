@@ -61,18 +61,14 @@ async function translateBatch(
   source: Language | "auto",
   signal?: AbortSignal,
   contextBefore: string[] = [],
-  contextAfter: string[] = []
+  contextAfter: string[] = [],
 ): Promise<string[]> {
   const lines: string[] = [];
   contextBefore.forEach((t, i) =>
-    lines.push(`C${i - contextBefore.length}| [CONTEXT] ${t.replace(/\s+/g, " ")}`)
+    lines.push(`C${i - contextBefore.length}| [CONTEXT] ${t.replace(/\s+/g, " ")}`),
   );
-  texts.forEach((t, i) =>
-    lines.push(`${i + 1}| [TRANSLATE] ${t.replace(/\s+/g, " ")}`)
-  );
-  contextAfter.forEach((t, i) =>
-    lines.push(`C+${i + 1}| [CONTEXT] ${t.replace(/\s+/g, " ")}`)
-  );
+  texts.forEach((t, i) => lines.push(`${i + 1}| [TRANSLATE] ${t.replace(/\s+/g, " ")}`));
+  contextAfter.forEach((t, i) => lines.push(`C+${i + 1}| [CONTEXT] ${t.replace(/\s+/g, " ")}`));
   const raw = await chatComplete({
     config,
     messages: [
@@ -101,13 +97,11 @@ async function translateMany(
   source: Language | "auto",
   onProgress?: (p: TranslateProgress) => void,
   signal?: AbortSignal,
-  concurrency = DEFAULT_CONCURRENCY
+  concurrency = DEFAULT_CONCURRENCY,
 ): Promise<string[]> {
   const result: string[] = new Array(texts.length);
   // Skip empty / whitespace-only nodes
-  const idxs = texts
-    .map((t, i) => ({ t, i }))
-    .filter((x) => x.t && x.t.trim().length > 0);
+  const idxs = texts.map((t, i) => ({ t, i })).filter((x) => x.t && x.t.trim().length > 0);
   const total = idxs.length;
   let done = 0;
 
@@ -124,9 +118,7 @@ async function translateMany(
       const start = batchStarts[k];
       const slice = idxs.slice(start, start + BATCH_SIZE);
       // Provide surrounding (untranslated source) segments as discourse context.
-      const before = idxs
-        .slice(Math.max(0, start - CONTEXT_WINDOW), start)
-        .map((s) => s.t);
+      const before = idxs.slice(Math.max(0, start - CONTEXT_WINDOW), start).map((s) => s.t);
       const after = idxs
         .slice(start + slice.length, start + slice.length + CONTEXT_WINDOW)
         .map((s) => s.t);
@@ -137,7 +129,7 @@ async function translateMany(
         source,
         signal,
         before,
-        after
+        after,
       );
       slice.forEach((s, kk) => {
         result[s.i] = translated[kk];

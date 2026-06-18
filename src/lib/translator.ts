@@ -34,8 +34,10 @@ Translate ONLY the segments marked [TRANSLATE].
 
 Translation rules:
 - Work at the level of phrases, clauses and full sentences. NEVER translate word-by-word.
+- Treat each [TRANSLATE] segment as one coherent sentence/paragraph, not as separate words.
 - Read each whole segment together with the surrounding context BEFORE writing,
   then re-express the meaning idiomatically in ${target} as a native speaker would.
+- Preserve normal spaces between words; never concatenate adjacent words.
 - Preserve meaning, register, tone, terminology consistency and inline punctuation.
 - Keep proper nouns, code, URLs, numbers, placeholders and markup tokens unchanged.
 - Resolve pronouns, ellipses and ambiguous references using the context.
@@ -162,6 +164,26 @@ function escapeXml(s: string) {
     .replace(/>/g, "&gt;");
 }
 
+function unescapeXml(s: string) {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function textTagRe(tag: "w:t" | "a:t") {
+  // Require whitespace or `>` after the tag name so we don't accidentally
+  // match siblings like <w:tab/>, <w:tbl>, <a:tableStyleId>, etc.
+  return new RegExp(`<${tag}(\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "g");
+}
+
+function containerTagRe(textTag: "w:t" | "a:t") {
+  const tag = textTag === "w:t" ? "w:p" : "a:p";
+  return new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?</${tag}>`, "g");
+}
+
 // Strip characters that are illegal in XML 1.0 (C0 controls except \t \n \r,
 // plus lone surrogates and non-characters). LLMs occasionally emit these and
 // they make Word refuse to open the .docx with "unreadable content" errors.
@@ -171,6 +193,68 @@ function sanitizeXmlText(s: string) {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "")
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
     .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1");
+}
+
+function textElement(tag: "w:t" | "a:t", attrs: string | undefined, text: string) {
+  const safe = sanitizeXmlText(text);
+  let a = attrs || "";
+  // Word/PowerPoint collapse leading/trailing whitespace unless xml:space is set
+  // on the exact run that carries that whitespace. This is critical after we
+  // split a translated paragraph back across multiple formatting runs.
+  if (/^\s|\s$/.test(safe) && !/xml:space\s*=/.test(a)) {
+    a = `${a} xml:space="preserve"`;
+  }
+  return `<${tag}${a}>${escapeXml(safe)}</${tag}>`;
+}
+
+function splitTranslatedAcrossRuns(translated: string, originalRuns: string[]) {
+  const chunks = new Array(originalRuns.length).fill("") as string[];
+  if (!originalRuns.length) return chunks;
+
+  const slots = originalRuns
+    .map((text, index) => ({ text, index }))
+    .filter(({ text }) => text.length > 0);
+  if (!slots.length) {
+    chunks[0] = translated;
+    return chunks;
+  }
+
+  const totalOriginal = slots.reduce((sum, slot) => sum + slot.text.length, 0) || slots.length;
+  let originalCursor = 0;
+  let translatedCursor = 0;
+
+  slots.forEach((slot, position) => {
+    if (position === slots.length - 1) {
+      chunks[slot.index] = translated.slice(translatedCursor);
+      return;
+    }
+    originalCursor += slot.text.length;
+    const nextCursor = Math.max(
+      translatedCursor,
+      Math.min(translated.length, Math.round((translated.length * originalCursor) / totalOriginal))
+    );
+    chunks[slot.index] = translated.slice(translatedCursor, nextCursor);
+    translatedCursor = nextCursor;
+  });
+
+  return chunks;
+}
+
+function extractContainerText(containerXml: string, tag: "w:t" | "a:t") {
+  return Array.from(containerXml.matchAll(textTagRe(tag)))
+    .map((m) => unescapeXml(m[2] || ""))
+    .join("");
+}
+
+function writeTranslatedContainer(containerXml: string, tag: "w:t" | "a:t", translated: string) {
+  const originals = Array.from(containerXml.matchAll(textTagRe(tag))).map((m) =>
+    unescapeXml(m[2] || "")
+  );
+  const chunks = splitTranslatedAcrossRuns(translated, originals);
+  let i = 0;
+  return containerXml.replace(textTagRe(tag), (_full, attrs) =>
+    textElement(tag, attrs, chunks[i++] || "")
+  );
 }
 
 

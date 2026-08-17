@@ -30,7 +30,8 @@ export function DocumentUploader({ docs, onChange }: Props) {
             const doc = await Promise.race([
               extractDocument(f),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Extraction timed out after 60s")), 60000)
+                // Scanned PDFs go through OCR, which can take minutes.
+                setTimeout(() => reject(new Error("Extraction timed out after 10 min")), 600000)
               ),
             ]);
             console.log("[upload] done", f.name, "chars=", doc.text.length);

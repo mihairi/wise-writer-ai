@@ -31,14 +31,55 @@ export interface ExtractedDoc {
   bytes?: ArrayBuffer;
 }
 
-async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
-  // Use the legacy build — works without a separate worker file in all browsers.
+async function loadPdfjs(): Promise<any> {
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = "";
+  // A real worker URL is required — an empty string throws
+  // 'No "GlobalWorkerOptions.workerSrc" specified'.
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    const workerUrl = (await import("pdfjs-dist/legacy/build/pdf.worker.mjs?url")).default;
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  }
+  return pdfjs;
+}
+
+/** OCR a rendered page image using tesseract.js. */
+async function ocrCanvas(canvas: HTMLCanvasElement, lang = "eng"): Promise<string> {
+  const { recognize } = await import("tesseract.js");
+  const dataUrl = canvas.toDataURL("image/png");
+  const res: any = await withTimeout(recognize(dataUrl, lang), 120000, "OCR");
+  return (res?.data?.text || "").trim();
+}
+
+/** Render + OCR every page of a PDF (used when the PDF has no text layer). */
+export async function ocrPdfFromBuffer(
+  buf: ArrayBuffer,
+  onProgress?: (page: number, total: number) => void
+): Promise<string> {
+  const pdfjs = await loadPdfjs();
+  const pdf: any = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
+  const out: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    onProgress?.(i, pdf.numPages);
+    const page: any = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext("2d")!;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const text = await ocrCanvas(canvas);
+    out.push(`# Page ${i}\n${text}`);
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+  return out.join("\n\n");
+}
+
+async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
+  const pdfjs = await loadPdfjs();
   const pdf: any = await withTimeout(
     pdfjs.getDocument({
       data: buf.slice(0),
-      disableWorker: true,
       isEvalSupported: false,
       useSystemFonts: true,
     }).promise,
@@ -51,8 +92,20 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
     const content: any = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
   }
-  return out.join("\n\n");
+  const text = out.join("\n\n");
+  // Scanned PDFs have (almost) no text layer — fall back to OCR.
+  const meaningful = text.replace(/\s+/g, "").length;
+  if (meaningful < Math.max(40, pdf.numPages * 20)) {
+    try {
+      const ocr = await ocrPdfFromBuffer(buf);
+      if (ocr.replace(/\s+/g, "").length > meaningful) return ocr;
+    } catch (e: any) {
+      console.error("[extract] OCR fallback failed", e);
+    }
+  }
+  return text;
 }
+
 
 async function extractDocxFromBuffer(buf: ArrayBuffer): Promise<string> {
   const { value } = await mammoth.extractRawText({ arrayBuffer: buf });

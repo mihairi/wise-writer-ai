@@ -31,6 +31,12 @@ export interface ExtractedDoc {
   bytes?: ArrayBuffer;
 }
 
+export interface ExtractionProgress {
+  phase: "reading" | "ocr";
+  completed: number;
+  total: number;
+}
+
 async function loadPdfjs(): Promise<any> {
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // A real worker URL is required — an empty string throws
@@ -42,40 +48,63 @@ async function loadPdfjs(): Promise<any> {
   return pdfjs;
 }
 
-/** OCR a rendered page image using tesseract.js. */
-async function ocrCanvas(canvas: HTMLCanvasElement, lang = "eng"): Promise<string> {
-  const { recognize } = await import("tesseract.js");
-  const dataUrl = canvas.toDataURL("image/png");
-  const res: any = await withTimeout(recognize(dataUrl, lang), 120000, "OCR");
-  return (res?.data?.text || "").trim();
-}
-
 /** Render + OCR every page of a PDF (used when the PDF has no text layer). */
 export async function ocrPdfFromBuffer(
   buf: ArrayBuffer,
-  onProgress?: (page: number, total: number) => void
+  onProgress?: (progress: ExtractionProgress) => void
 ): Promise<string> {
   const pdfjs = await loadPdfjs();
   const pdf: any = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
-  const out: string[] = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    onProgress?.(i, pdf.numPages);
-    const page: any = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const ctx = canvas.getContext("2d")!;
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const text = await ocrCanvas(canvas);
-    out.push(`# Page ${i}\n${text}`);
-    canvas.width = 0;
-    canvas.height = 0;
+  const { createWorker } = await import("tesseract.js");
+  const workerCount = Math.min(pdf.numPages, 2);
+  const workers = await Promise.all(Array.from({ length: workerCount }, () => createWorker("eng")));
+  const out = new Array<string>(pdf.numPages);
+  let nextPage = 1;
+  let completed = 0;
+
+  const runWorker = async (worker: Awaited<ReturnType<typeof createWorker>>) => {
+    while (nextPage <= pdf.numPages) {
+      const pageNumber = nextPage++;
+      const page: any = await pdf.getPage(pageNumber);
+      // 1.4x is a good OCR/readability balance and uses roughly half the pixels of 2x.
+      const viewport = page.getViewport({ scale: 1.4 });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error(`Could not render PDF page ${pageNumber}`);
+
+      try {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const result: any = await withTimeout(
+          worker.recognize(canvas),
+          120000,
+          `OCR page ${pageNumber}`
+        );
+        out[pageNumber - 1] = `# Page ${pageNumber}\n${(result?.data?.text || "").trim()}`;
+        completed += 1;
+        onProgress?.({ phase: "ocr", completed, total: pdf.numPages });
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+        page.cleanup?.();
+      }
+    }
+  };
+
+  try {
+    await Promise.all(workers.map(runWorker));
+  } finally {
+    await Promise.all(workers.map((worker) => worker.terminate()));
+    pdf.cleanup?.();
   }
   return out.join("\n\n");
 }
 
-async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
+async function extractPdfFromBuffer(
+  buf: ArrayBuffer,
+  onProgress?: (progress: ExtractionProgress) => void
+): Promise<string> {
   const pdfjs = await loadPdfjs();
   const pdf: any = await withTimeout(
     pdfjs.getDocument({
@@ -91,13 +120,15 @@ async function extractPdfFromBuffer(buf: ArrayBuffer): Promise<string> {
     const page: any = await withTimeout(pdf.getPage(i), 10000, `PDF page ${i}`);
     const content: any = await withTimeout(page.getTextContent(), 10000, `PDF text page ${i}`);
     out.push(content.items.map((it: any) => it.str).join(" "));
+    onProgress?.({ phase: "reading", completed: i, total: pdf.numPages });
+    page.cleanup?.();
   }
   const text = out.join("\n\n");
   // Scanned PDFs have (almost) no text layer — fall back to OCR.
   const meaningful = text.replace(/\s+/g, "").length;
   if (meaningful < Math.max(40, pdf.numPages * 20)) {
     try {
-      const ocr = await ocrPdfFromBuffer(buf);
+      const ocr = await ocrPdfFromBuffer(buf, onProgress);
       if (ocr.replace(/\s+/g, "").length > meaningful) return ocr;
     } catch (e: any) {
       console.error("[extract] OCR fallback failed", e);
@@ -131,13 +162,16 @@ async function extractPptxFromBuffer(buf: ArrayBuffer): Promise<string> {
 }
 
 
-export async function extractDocument(file: File): Promise<ExtractedDoc> {
+export async function extractDocument(
+  file: File,
+  onProgress?: (progress: ExtractionProgress) => void
+): Promise<ExtractedDoc> {
   const name = file.name.toLowerCase();
   let text = "";
   let bytes: ArrayBuffer | undefined;
   try {
     bytes = await file.arrayBuffer();
-    if (name.endsWith(".pdf")) text = await extractPdfFromBuffer(bytes);
+    if (name.endsWith(".pdf")) text = await extractPdfFromBuffer(bytes, onProgress);
     else if (name.endsWith(".docx")) text = await extractDocxFromBuffer(bytes);
     else if (name.endsWith(".pptx")) text = await extractPptxFromBuffer(bytes);
     else text = new TextDecoder().decode(bytes);

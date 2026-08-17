@@ -1,7 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { Upload, FileText, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { extractDocument, type ExtractedDoc, uid } from "@/lib/document-extract";
+import {
+  extractDocument,
+  type ExtractedDoc,
+  type ExtractionProgress,
+  uid,
+} from "@/lib/document-extract";
 interface Props {
   docs: ExtractedDoc[];
   onChange: (docs: ExtractedDoc[]) => void;
@@ -16,6 +21,7 @@ function fmtSize(n: number) {
 export function DocumentUploader({ docs, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
+  const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
@@ -27,13 +33,8 @@ export function DocumentUploader({ docs, onChange }: Props) {
         for (const f of Array.from(files)) {
           try {
             console.log("[upload] extracting", f.name, f.size, f.type);
-            const doc = await Promise.race([
-              extractDocument(f),
-              new Promise<never>((_, reject) =>
-                // Scanned PDFs go through OCR, which can take minutes.
-                setTimeout(() => reject(new Error("Extraction timed out after 10 min")), 600000)
-              ),
-            ]);
+            setProgress(null);
+            const doc = await extractDocument(f, setProgress);
             console.log("[upload] done", f.name, "chars=", doc.text.length);
             extracted.push(doc);
           } catch (err: any) {
@@ -51,6 +52,7 @@ export function DocumentUploader({ docs, onChange }: Props) {
         onChange([...docs, ...extracted]);
       } finally {
         setBusy(false);
+        setProgress(null);
         if (inputRef.current) inputRef.current.value = "";
       }
     },
@@ -96,8 +98,23 @@ export function DocumentUploader({ docs, onChange }: Props) {
           PDF · DOCX · PPTX · TXT · MD · CSV · JSON · HTML · XML
         </p>
         {busy && (
-          <div className="absolute inset-0 grid place-items-center bg-background/60 rounded-md">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <div className="absolute inset-0 grid place-items-center bg-background/80 rounded-md">
+            <div className="flex flex-col items-center gap-2 px-4">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <span className="text-xs font-mono text-foreground">
+                {progress
+                  ? `${progress.phase === "ocr" ? "OCR" : "Reading"} ${progress.completed} / ${progress.total} pages`
+                  : "Preparing document…"}
+              </span>
+              {progress && (
+                <div className="h-1 w-40 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${(progress.completed / progress.total) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
